@@ -261,3 +261,86 @@
     )
   )
 )
+
+(define-public (harvest-accumulated-yield)
+  (begin
+    (asserts! (var-get protocol-active) ERR_POOL_INACTIVE)
+
+    (let (
+        (participant-stake-balance (default-to u0 (map-get? participant-balances tx-sender)))
+        (existing-rewards (default-to u0 (map-get? participant-accumulated-rewards tx-sender)))
+        (blocks-since-last-distribution (- block-height (var-get last-yield-distribution-block)))
+        (newly-generated-rewards (compute-yield-amount participant-stake-balance
+          blocks-since-last-distribution
+        ))
+        (total-harvestable-rewards (+ existing-rewards newly-generated-rewards))
+      )
+      (asserts! (> total-harvestable-rewards u0) ERR_NO_YIELD_AVAILABLE)
+
+      ;; Process reward harvest
+      (map-set participant-accumulated-rewards tx-sender u0)
+      (map-set participant-balances tx-sender
+        (+ participant-stake-balance total-harvestable-rewards)
+      )
+
+      (ok total-harvestable-rewards)
+    )
+  )
+)
+
+;; TOKEN TRANSFER FUNCTIONS
+(define-public (transfer
+    (amount uint)
+    (sender principal)
+    (recipient principal)
+    (memo (optional (buff 34)))
+  )
+  (begin
+    (asserts! (is-eq tx-sender sender) ERR_UNAUTHORIZED)
+    (try! (execute-internal-token-transfer amount sender recipient))
+    (match memo
+      memo-data (print memo-data)
+      0x
+    )
+    (ok true)
+  )
+)
+
+(define-public (update-token-metadata (new-metadata (optional (string-utf8 256))))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+    (ok (var-set vault-token-metadata new-metadata))
+  )
+)
+
+;; PROTOCOL ANALYTICS & QUERIES
+(define-read-only (get-participant-stake-info (participant principal))
+  (ok (default-to u0 (map-get? participant-balances participant)))
+)
+
+(define-read-only (get-participant-reward-balance (participant principal))
+  (ok (default-to u0 (map-get? participant-accumulated-rewards participant)))
+)
+
+(define-read-only (get-comprehensive-protocol-metrics)
+  (ok {
+    total-value-locked: (var-get total-staked),
+    cumulative-yield-distributed: (var-get total-yield-generated),
+    current-base-apy: (var-get base-yield-rate),
+    protocol-status: (var-get protocol-active),
+    insurance-module-status: (var-get insurance-module-active),
+    insurance-reserve-tvl: (var-get insurance-reserve-balance),
+  })
+)
+
+(define-read-only (get-participant-risk-assessment (participant principal))
+  (ok (default-to u0 (map-get? participant-risk-profiles participant)))
+)
+
+;; PROTOCOL INITIALIZATION
+(begin
+  (var-set protocol-active false)
+  (var-set insurance-module-active false)
+  (var-set base-yield-rate u750) ;; 7.5% optimized base APY
+  (var-set last-yield-distribution-block block-height)
+)
