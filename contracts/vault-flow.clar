@@ -31,7 +31,12 @@
 (define-constant ERR_NO_YIELD_AVAILABLE (err u107))
 (define-constant ERR_MINIMUM_STAKE (err u108))
 (define-constant ERR_UNAUTHORIZED (err u109))
+(define-constant ERR_INVALID_YIELD_RATE (err u110))
+(define-constant ERR_INVALID_RECIPIENT (err u111))
+(define-constant ERR_INVALID_METADATA (err u112))
 (define-constant MINIMUM_STAKE_AMOUNT u1000000) ;; 0.01 BTC minimum entry threshold
+(define-constant MAX_YIELD_RATE u5000) ;; Maximum 50% APY for security
+(define-constant MIN_YIELD_RATE u100) ;; Minimum 1% APY
 
 ;; PROTOCOL STATE VARIABLES
 (define-data-var total-staked uint u0)
@@ -133,10 +138,10 @@
 
 (define-private (validate-yield-distribution-eligibility)
   (let (
-      (current-block-height block-height)
+      (current-stacks-block-height stacks-block-height)
       (previous-distribution-block (var-get last-yield-distribution-block))
     )
-    (if (>= current-block-height (+ previous-distribution-block u144))
+    (if (>= current-stacks-block-height (+ previous-distribution-block u144))
       (ok true)
       ERR_NO_YIELD_AVAILABLE
     )
@@ -169,9 +174,16 @@
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
     (asserts! (not (var-get protocol-active)) ERR_ALREADY_INITIALIZED)
+    (asserts!
+      (and
+        (>= initial-yield-rate MIN_YIELD_RATE)
+        (<= initial-yield-rate MAX_YIELD_RATE)
+      )
+      ERR_INVALID_YIELD_RATE
+    )
     (var-set protocol-active true)
     (var-set base-yield-rate initial-yield-rate)
-    (var-set last-yield-distribution-block block-height)
+    (var-set last-yield-distribution-block stacks-block-height)
     (ok true)
   )
 )
@@ -240,19 +252,19 @@
     (try! (validate-yield-distribution-eligibility))
 
     (let (
-        (current-block-height block-height)
-        (elapsed-blocks (- current-block-height (var-get last-yield-distribution-block)))
+        (current-stacks-block-height stacks-block-height)
+        (elapsed-blocks (- current-stacks-block-height (var-get last-yield-distribution-block)))
         (total-yield-to-distribute (compute-yield-amount (var-get total-staked) elapsed-blocks))
       )
       ;; Update protocol yield metrics
       (var-set total-yield-generated
         (+ (var-get total-yield-generated) total-yield-to-distribute)
       )
-      (var-set last-yield-distribution-block current-block-height)
+      (var-set last-yield-distribution-block current-stacks-block-height)
 
       ;; Record distribution event
-      (map-set yield-distribution-ledger current-block-height {
-        distribution-block: current-block-height,
+      (map-set yield-distribution-ledger current-stacks-block-height {
+        distribution-block: current-stacks-block-height,
         total-amount-distributed: total-yield-to-distribute,
         effective-apy: (var-get base-yield-rate),
       })
@@ -269,7 +281,7 @@
     (let (
         (participant-stake-balance (default-to u0 (map-get? participant-balances tx-sender)))
         (existing-rewards (default-to u0 (map-get? participant-accumulated-rewards tx-sender)))
-        (blocks-since-last-distribution (- block-height (var-get last-yield-distribution-block)))
+        (blocks-since-last-distribution (- stacks-block-height (var-get last-yield-distribution-block)))
         (newly-generated-rewards (compute-yield-amount participant-stake-balance
           blocks-since-last-distribution
         ))
@@ -297,6 +309,9 @@
   )
   (begin
     (asserts! (is-eq tx-sender sender) ERR_UNAUTHORIZED)
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (not (is-eq sender recipient)) ERR_INVALID_RECIPIENT)
+    (asserts! (is-standard recipient) ERR_INVALID_RECIPIENT)
     (try! (execute-internal-token-transfer amount sender recipient))
     (match memo
       memo-data (print memo-data)
@@ -309,7 +324,24 @@
 (define-public (update-token-metadata (new-metadata (optional (string-utf8 256))))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
-    (ok (var-set vault-token-metadata new-metadata))
+    ;; Validate and safely set metadata
+    (match new-metadata
+      metadata-value
+      (begin
+        (asserts! (> (len metadata-value) u0) ERR_INVALID_METADATA)
+        (asserts! (<= (len metadata-value) u256) ERR_INVALID_METADATA)
+        ;; Create validated optional with the checked value
+        (let ((validated-metadata (some metadata-value)))
+          (var-set vault-token-metadata validated-metadata)
+          (ok true)
+        )
+      )
+      ;; If none, safely clear metadata
+      (begin
+        (var-set vault-token-metadata none)
+        (ok true)
+      )
+    )
   )
 )
 
@@ -342,5 +374,5 @@
   (var-set protocol-active false)
   (var-set insurance-module-active false)
   (var-set base-yield-rate u750) ;; 7.5% optimized base APY
-  (var-set last-yield-distribution-block block-height)
+  (var-set last-yield-distribution-block stacks-block-height)
 )
