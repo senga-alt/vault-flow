@@ -175,3 +175,89 @@
     (ok true)
   )
 )
+
+;; CORE STAKING FUNCTIONS
+(define-public (deposit-and-stake (deposit-amount uint))
+  (begin
+    (asserts! (var-get protocol-active) ERR_POOL_INACTIVE)
+    (asserts! (>= deposit-amount MINIMUM_STAKE_AMOUNT) ERR_MINIMUM_STAKE)
+
+    ;; Update participant position
+    (let (
+        (existing-participant-balance (default-to u0 (map-get? participant-balances tx-sender)))
+        (updated-participant-balance (+ existing-participant-balance deposit-amount))
+      )
+      (map-set participant-balances tx-sender updated-participant-balance)
+      (var-set total-staked (+ (var-get total-staked) deposit-amount))
+
+      ;; Update risk assessment
+      (update-participant-risk-profile tx-sender deposit-amount)
+
+      ;; Activate insurance coverage if enabled
+      (if (var-get insurance-module-active)
+        (map-set insurance-protection-coverage tx-sender deposit-amount)
+        true
+      )
+
+      (ok true)
+    )
+  )
+)
+
+(define-public (withdraw-and-unstake (withdrawal-amount uint))
+  (let ((participant-current-balance (default-to u0 (map-get? participant-balances tx-sender))))
+    (asserts! (var-get protocol-active) ERR_POOL_INACTIVE)
+    (asserts! (>= participant-current-balance withdrawal-amount)
+      ERR_INSUFFICIENT_BALANCE
+    )
+
+    ;; Process any pending yield rewards before withdrawal
+    (try! (harvest-accumulated-yield))
+
+    ;; Execute withdrawal
+    (map-set participant-balances tx-sender
+      (- participant-current-balance withdrawal-amount)
+    )
+    (var-set total-staked (- (var-get total-staked) withdrawal-amount))
+
+    ;; Adjust insurance coverage if applicable
+    (if (var-get insurance-module-active)
+      (map-set insurance-protection-coverage tx-sender
+        (- participant-current-balance withdrawal-amount)
+      )
+      true
+    )
+
+    (ok true)
+  )
+)
+
+;; YIELD DISTRIBUTION SYSTEM
+(define-public (execute-protocol-yield-distribution)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+    (asserts! (var-get protocol-active) ERR_POOL_INACTIVE)
+    (try! (validate-yield-distribution-eligibility))
+
+    (let (
+        (current-block-height block-height)
+        (elapsed-blocks (- current-block-height (var-get last-yield-distribution-block)))
+        (total-yield-to-distribute (compute-yield-amount (var-get total-staked) elapsed-blocks))
+      )
+      ;; Update protocol yield metrics
+      (var-set total-yield-generated
+        (+ (var-get total-yield-generated) total-yield-to-distribute)
+      )
+      (var-set last-yield-distribution-block current-block-height)
+
+      ;; Record distribution event
+      (map-set yield-distribution-ledger current-block-height {
+        distribution-block: current-block-height,
+        total-amount-distributed: total-yield-to-distribute,
+        effective-apy: (var-get base-yield-rate),
+      })
+
+      (ok total-yield-to-distribute)
+    )
+  )
+)
