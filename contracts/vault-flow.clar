@@ -86,3 +86,92 @@
 (define-read-only (get-symbol)
   (ok (var-get vault-token-symbol))
 )
+
+(define-read-only (get-decimals)
+  (ok u8)
+)
+
+(define-read-only (get-balance (account principal))
+  (ok (default-to u0 (map-get? participant-balances account)))
+)
+
+(define-read-only (get-total-supply)
+  (ok (var-get total-staked))
+)
+
+(define-read-only (get-token-uri)
+  (ok (var-get vault-token-metadata))
+)
+
+;; INTERNAL PROTOCOL FUNCTIONS
+(define-private (compute-yield-amount
+    (principal-amount uint)
+    (time-blocks uint)
+  )
+  (let (
+      (current-rate (var-get base-yield-rate))
+      (time-coefficient (/ time-blocks u144)) ;; Daily block approximation
+      (base-yield-calculation (* principal-amount current-rate))
+    )
+    (/ (* base-yield-calculation time-coefficient) u10000)
+  )
+)
+
+(define-private (update-participant-risk-profile
+    (participant principal)
+    (stake-amount uint)
+  )
+  (let (
+      (existing-risk-score (default-to u0 (map-get? participant-risk-profiles participant)))
+      (stake-impact-factor (/ stake-amount u100000000)) ;; Risk factor based on position size
+      (updated-risk-score (+ existing-risk-score stake-impact-factor))
+    )
+    (map-set participant-risk-profiles participant updated-risk-score)
+    updated-risk-score
+  )
+)
+
+(define-private (validate-yield-distribution-eligibility)
+  (let (
+      (current-block-height block-height)
+      (previous-distribution-block (var-get last-yield-distribution-block))
+    )
+    (if (>= current-block-height (+ previous-distribution-block u144))
+      (ok true)
+      ERR_NO_YIELD_AVAILABLE
+    )
+  )
+)
+
+(define-private (execute-internal-token-transfer
+    (transfer-amount uint)
+    (from-account principal)
+    (to-account principal)
+  )
+  (let ((sender-current-balance (default-to u0 (map-get? participant-balances from-account))))
+    (asserts! (>= sender-current-balance transfer-amount)
+      ERR_INSUFFICIENT_BALANCE
+    )
+
+    (map-set participant-balances from-account
+      (- sender-current-balance transfer-amount)
+    )
+    (map-set participant-balances to-account
+      (+ (default-to u0 (map-get? participant-balances to-account))
+        transfer-amount
+      ))
+    (ok true)
+  )
+)
+
+;; PROTOCOL MANAGEMENT FUNCTIONS
+(define-public (initialize-vaultflow-protocol (initial-yield-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+    (asserts! (not (var-get protocol-active)) ERR_ALREADY_INITIALIZED)
+    (var-set protocol-active true)
+    (var-set base-yield-rate initial-yield-rate)
+    (var-set last-yield-distribution-block block-height)
+    (ok true)
+  )
+)
