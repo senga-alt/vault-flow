@@ -328,6 +328,26 @@
   )
 )
 
+;; SECURE TRANSFER WITH ASSET RESTRICTIONS (Clarity 4)
+(define-public (secure-transfer
+    (amount uint)
+    (recipient principal)
+  )
+  (begin
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (not (is-eq tx-sender recipient)) ERR_INVALID_RECIPIENT)
+    (asserts! (is-standard recipient) ERR_INVALID_RECIPIENT)
+    
+    ;; Use restrict-assets? to ensure no unauthorized asset movements
+    (match (restrict-assets? tx-sender ()
+      (execute-internal-token-transfer amount tx-sender recipient)
+    )
+      success (ok success)
+      error-index ERR_ASSET_RESTRICTION_VIOLATED
+    )
+  )
+)
+
 (define-public (update-token-metadata (new-metadata (optional (string-utf8 256))))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
