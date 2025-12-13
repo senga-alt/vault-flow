@@ -356,6 +356,25 @@
 )
 
 ;; SECURE TRANSFER WITH ASSET RESTRICTIONS (Clarity 4)
+;; Note: restrict-assets? requires non-response body, so we use a helper
+(define-private (internal-transfer-helper
+    (amount uint)
+    (sender principal)
+    (recipient principal)
+  )
+  (let ((sender-balance (default-to u0 (map-get? participant-balances sender))))
+    (if (>= sender-balance amount)
+      (begin
+        (map-set participant-balances sender (- sender-balance amount))
+        (map-set participant-balances recipient
+          (+ (default-to u0 (map-get? participant-balances recipient)) amount))
+        true
+      )
+      false
+    )
+  )
+)
+
 (define-public (secure-transfer
     (amount uint)
     (recipient principal)
@@ -366,8 +385,9 @@
     (asserts! (is-standard recipient) ERR_INVALID_RECIPIENT)
     
     ;; Use restrict-assets? to ensure no unauthorized asset movements
+    ;; The body must not return a response type
     (match (restrict-assets? tx-sender ()
-      (execute-internal-token-transfer amount tx-sender recipient)
+      (internal-transfer-helper amount tx-sender recipient)
     )
       success (ok success)
       error-index ERR_ASSET_RESTRICTION_VIOLATED
