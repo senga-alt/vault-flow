@@ -34,9 +34,12 @@
 (define-constant ERR_INVALID_YIELD_RATE (err u110))
 (define-constant ERR_INVALID_RECIPIENT (err u111))
 (define-constant ERR_INVALID_METADATA (err u112))
+(define-constant ERR_INVALID_TIME (err u113))
+(define-constant ERR_ASSET_RESTRICTION_VIOLATED (err u114))
 (define-constant MINIMUM_STAKE_AMOUNT u1000000) ;; 0.01 BTC minimum entry threshold
 (define-constant MAX_YIELD_RATE u5000) ;; Maximum 50% APY for security
 (define-constant MIN_YIELD_RATE u100) ;; Minimum 1% APY
+(define-constant SECONDS_PER_DAY u86400) ;; 24 hours in seconds
 
 ;; PROTOCOL STATE VARIABLES
 (define-data-var total-staked uint u0)
@@ -44,7 +47,7 @@
 (define-data-var protocol-active bool false)
 (define-data-var insurance-module-active bool false)
 (define-data-var base-yield-rate uint u0)
-(define-data-var last-yield-distribution-block uint u0)
+(define-data-var last-yield-distribution-time uint u0)
 (define-data-var insurance-reserve-balance uint u0)
 (define-data-var vault-token-name (string-ascii 32) "VaultFlow Staked BTC")
 (define-data-var vault-token-symbol (string-ascii 10) "vfBTC")
@@ -62,7 +65,7 @@
 (define-map yield-distribution-ledger
   uint
   {
-    distribution-block: uint,
+    distribution-timestamp: uint,
     total-amount-distributed: uint,
     effective-apy: uint,
   }
@@ -111,14 +114,16 @@
 ;; INTERNAL PROTOCOL FUNCTIONS
 (define-private (compute-yield-amount
     (principal-amount uint)
-    (time-blocks uint)
+    (time-seconds uint)
   )
   (let (
       (current-rate (var-get base-yield-rate))
-      (time-coefficient (/ time-blocks u144)) ;; Daily block approximation
+      (days-elapsed (/ time-seconds SECONDS_PER_DAY))
       (base-yield-calculation (* principal-amount current-rate))
+      (annual-divisor (* u365 u10000)) ;; Convert APY to daily rate
     )
-    (/ (* base-yield-calculation time-coefficient) u10000)
+    ;; Calculate yield: (principal * rate * days) / (365 * 10000)
+    (/ (* (* base-yield-calculation days-elapsed) u1) annual-divisor)
   )
 )
 
@@ -138,10 +143,12 @@
 
 (define-private (validate-yield-distribution-eligibility)
   (let (
-      (current-stacks-block-height stacks-block-height)
-      (previous-distribution-block (var-get last-yield-distribution-block))
+      (current-time stacks-block-time)
+      (previous-distribution-time (var-get last-yield-distribution-time))
+      (time-since-last (- current-time previous-distribution-time))
     )
-    (if (>= current-stacks-block-height (+ previous-distribution-block u144))
+    ;; Require at least 1 day between distributions
+    (if (>= time-since-last SECONDS_PER_DAY)
       (ok true)
       ERR_NO_YIELD_AVAILABLE
     )
@@ -183,7 +190,7 @@
     )
     (var-set protocol-active true)
     (var-set base-yield-rate initial-yield-rate)
-    (var-set last-yield-distribution-block stacks-block-height)
+    (var-set last-yield-distribution-time stacks-block-time)
     (ok true)
   )
 )
@@ -252,19 +259,19 @@
     (try! (validate-yield-distribution-eligibility))
 
     (let (
-        (current-stacks-block-height stacks-block-height)
-        (elapsed-blocks (- current-stacks-block-height (var-get last-yield-distribution-block)))
-        (total-yield-to-distribute (compute-yield-amount (var-get total-staked) elapsed-blocks))
+        (current-time stacks-block-time)
+        (elapsed-seconds (- current-time (var-get last-yield-distribution-time)))
+        (total-yield-to-distribute (compute-yield-amount (var-get total-staked) elapsed-seconds))
       )
       ;; Update protocol yield metrics
       (var-set total-yield-generated
         (+ (var-get total-yield-generated) total-yield-to-distribute)
       )
-      (var-set last-yield-distribution-block current-stacks-block-height)
+      (var-set last-yield-distribution-time current-time)
 
       ;; Record distribution event
-      (map-set yield-distribution-ledger current-stacks-block-height {
-        distribution-block: current-stacks-block-height,
+      (map-set yield-distribution-ledger current-time {
+        distribution-timestamp: current-time,
         total-amount-distributed: total-yield-to-distribute,
         effective-apy: (var-get base-yield-rate),
       })
@@ -281,9 +288,9 @@
     (let (
         (participant-stake-balance (default-to u0 (map-get? participant-balances tx-sender)))
         (existing-rewards (default-to u0 (map-get? participant-accumulated-rewards tx-sender)))
-        (blocks-since-last-distribution (- stacks-block-height (var-get last-yield-distribution-block)))
+        (seconds-since-last-distribution (- stacks-block-time (var-get last-yield-distribution-time)))
         (newly-generated-rewards (compute-yield-amount participant-stake-balance
-          blocks-since-last-distribution
+          seconds-since-last-distribution
         ))
         (total-harvestable-rewards (+ existing-rewards newly-generated-rewards))
       )
@@ -374,5 +381,5 @@
   (var-set protocol-active false)
   (var-set insurance-module-active false)
   (var-set base-yield-rate u750) ;; 7.5% optimized base APY
-  (var-set last-yield-distribution-block stacks-block-height)
+  (var-set last-yield-distribution-time stacks-block-time)
 )
