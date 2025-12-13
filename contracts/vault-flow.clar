@@ -464,7 +464,7 @@
       ERR_INVALID_YIELD_RATE)
     (var-set base-yield-rate new-rate)
     (print {
-      event: \"yield-rate-updated\",
+      event: "yield-rate-updated",
       old-rate: (var-get base-yield-rate),
       new-rate: new-rate,
       timestamp: stacks-block-time
@@ -478,7 +478,7 @@
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
     (var-set insurance-module-active enable)
     (print {
-      event: \"insurance-module-toggled\",
+      event: "insurance-module-toggled",
       enabled: enable,
       timestamp: stacks-block-time
     })
