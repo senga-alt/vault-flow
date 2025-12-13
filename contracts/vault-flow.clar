@@ -456,6 +456,36 @@
   )
 )
 
+;; PROTOCOL MANAGEMENT FUNCTIONS (Enhanced)
+(define-public (update-yield-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+    (asserts! (and (>= new-rate MIN_YIELD_RATE) (<= new-rate MAX_YIELD_RATE)) 
+      ERR_INVALID_YIELD_RATE)
+    (var-set base-yield-rate new-rate)
+    (print {
+      event: \"yield-rate-updated\",
+      old-rate: (var-get base-yield-rate),
+      new-rate: new-rate,
+      timestamp: stacks-block-time
+    })
+    (ok true)
+  )
+)
+
+(define-public (toggle-insurance-module (enable bool))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+    (var-set insurance-module-active enable)
+    (print {
+      event: \"insurance-module-toggled\",
+      enabled: enable,
+      timestamp: stacks-block-time
+    })
+    (ok true)
+  )
+)
+
 ;; PROTOCOL INITIALIZATION
 (begin
   (var-set protocol-active false)
