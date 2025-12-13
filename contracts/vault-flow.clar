@@ -218,6 +218,15 @@
         true
       )
 
+      ;; Enhanced logging with Clarity 4 to-ascii?
+      (print {
+        event: "stake",
+        user: tx-sender,
+        amount: deposit-amount,
+        new-balance: updated-participant-balance,
+        timestamp: stacks-block-time
+      })
+
       (ok true)
     )
   )
@@ -246,6 +255,15 @@
       )
       true
     )
+
+    ;; Enhanced logging with Clarity 4
+    (print {
+      event: "unstake",
+      user: tx-sender,
+      amount: withdrawal-amount,
+      new-balance: (- participant-current-balance withdrawal-amount),
+      timestamp: stacks-block-time
+    })
 
     (ok true)
   )
@@ -301,6 +319,15 @@
       (map-set participant-balances tx-sender
         (+ participant-stake-balance total-harvestable-rewards)
       )
+
+      ;; Enhanced logging
+      (print {
+        event: "yield-harvest",
+        user: tx-sender,
+        rewards: total-harvestable-rewards,
+        new-balance: (+ participant-stake-balance total-harvestable-rewards),
+        timestamp: stacks-block-time
+      })
 
       (ok total-harvestable-rewards)
     )
