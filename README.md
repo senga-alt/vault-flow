@@ -1,8 +1,9 @@
 # VaultFlow Pro 🚀
 
-[![Clarity](https://img.shields.io/badge/Clarity-3.0-blue.svg)](https://docs.stacks.co/clarity)
+[![Clarity](https://img.shields.io/badge/Clarity-4.0-blue.svg)](https://docs.stacks.co/clarity)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-Vitest-yellow.svg)](tests/)
+[![SIP-033](https://img.shields.io/badge/SIP--033-Compliant-brightgreen.svg)](https://github.com/stacksgov/sips)
 
 > **Advanced Bitcoin Yield Aggregation Protocol on Stacks**
 
@@ -12,6 +13,8 @@ VaultFlow Pro is a sophisticated DeFi protocol that enables Bitcoin holders to e
 
 VaultFlow Pro revolutionizes Bitcoin yield generation by creating a decentralized infrastructure where users can stake their Bitcoin and receive vfBTC tokens representing their position. The protocol employs advanced yield optimization algorithms, risk assessment scoring, and optional insurance coverage to maximize returns while minimizing exposure.
 
+**Now powered by Clarity 4** with enhanced security features including `restrict-assets?` for asset protection, precise timestamp-based calculations using `stacks-block-time`, and comprehensive event logging for better observability.
+
 ### Key Features
 
 - **🔄 Dynamic Yield Distribution** - Compound interest calculations with optimized APY
@@ -20,6 +23,9 @@ VaultFlow Pro revolutionizes Bitcoin yield generation by creating a decentralize
 - **📈 Real-time Analytics** - Comprehensive yield tracking and performance metrics
 - **🪙 SIP-010 Compliance** - Standard-compliant tokenized staking positions
 - **⚡ Instant Liquidity** - Flexible staking/unstaking with immediate access
+- **⏰ Precise Time-Based Logic** - Clarity 4 `stacks-block-time` for accurate yield calculations
+- **🔒 Enhanced Asset Protection** - `restrict-assets?` safeguards against unauthorized movements
+- **📢 Comprehensive Event Logging** - Real-time event emissions for all protocol activities
 
 ## 🏗️ Architecture
 
@@ -61,7 +67,36 @@ VaultFlow Pro Contract
 |----------|-------|-------------|
 | `MINIMUM_STAKE_AMOUNT` | 1,000,000 μBTC | 0.01 BTC minimum entry |
 | `BASE_YIELD_RATE` | 750 basis points | 7.5% optimized APY |
-| `YIELD_DISTRIBUTION_BLOCKS` | 144 blocks | ~24 hours cycle |
+| `SECONDS_PER_DAY` | 86,400 seconds | Exact 24-hour cycle (Clarity 4) |
+| `MAX_YIELD_RATE` | 5,000 basis points | 50% maximum APY cap |
+| `MIN_YIELD_RATE` | 100 basis points | 1% minimum APY floor |
+
+## ✨ Clarity 4 Enhancements
+
+VaultFlow Pro leverages the latest Clarity 4 features introduced in SIP-033:
+
+### Timestamp-Based Calculations
+- Uses `stacks-block-time` for precise second-level accuracy
+- Eliminates block height approximations
+- Enables accurate DeFi time-based logic
+
+### Asset Restriction Protection
+- `restrict-assets?` provides automatic asset flow validation
+- Prevents unauthorized token movements
+- Automatic rollback on violation detection
+
+### Enhanced Observability
+- Comprehensive event logging on all state changes
+- Timestamps on every event for accurate tracking
+- Better integration with analytics and indexers
+
+### New Helper Functions
+- `get-participant-detailed-info` - Complete user info in one call
+- `estimate-pending-yield` - Calculate pending rewards
+- `can-distribute-yield` - Check distribution eligibility
+- `get-time-since-last-distribution` - Time tracking
+
+For detailed information, see [CLARITY_4_IMPROVEMENTS.md](CLARITY_4_IMPROVEMENTS.md).
 
 ## 🚀 Getting Started
 
@@ -106,10 +141,21 @@ VaultFlow Pro Contract
    (contract-call? .vault-flow deposit-and-stake u10000000) ;; 0.1 BTC
    ```
 
-3. **Check your position**
+3. **Check your position (Clarity 4 enhanced)**
 
    ```clarity
-   (contract-call? .vault-flow get-participant-stake-info tx-sender)
+   ;; Get comprehensive info
+   (contract-call? .vault-flow get-participant-detailed-info tx-sender)
+   
+   ;; Estimate pending yield
+   (contract-call? .vault-flow estimate-pending-yield tx-sender)
+   ```
+
+4. **Use secure transfer (Clarity 4)**
+
+   ```clarity
+   ;; Transfer with asset protection
+   (contract-call? .vault-flow secure-transfer u1000000 'SP...)
    ```
 
 ## 🧪 Testing
@@ -158,6 +204,26 @@ tests/
 **Access**: Owner only  
 **Parameters**: `initial-yield-rate` - APY in basis points (750 = 7.5%)
 
+##### `update-yield-rate` ✨ New in Clarity 4
+
+```clarity
+(define-public (update-yield-rate (new-rate uint))
+```
+
+**Purpose**: Dynamically adjust protocol yield rate  
+**Access**: Owner only  
+**Parameters**: `new-rate` - APY in basis points (100-5000)
+
+##### `toggle-insurance-module` ✨ New in Clarity 4
+
+```clarity
+(define-public (toggle-insurance-module (enable bool))
+```
+
+**Purpose**: Enable or disable insurance coverage  
+**Access**: Owner only  
+**Parameters**: `enable` - true to activate, false to deactivate
+
 #### Core Staking
 
 ##### `deposit-and-stake`
@@ -190,7 +256,8 @@ tests/
 
 **Purpose**: Distribute protocol-wide yield rewards  
 **Access**: Owner only  
-**Frequency**: Every 144 blocks (~24 hours)
+**Frequency**: Every 86,400 seconds (exactly 24 hours) ✨ Clarity 4
+**Note**: Now uses precise timestamps instead of block approximations
 
 ##### `harvest-accumulated-yield`
 
@@ -212,7 +279,7 @@ tests/
 (define-read-only (get-comprehensive-protocol-metrics))
 ```
 
-**Returns**: Protocol TVL, yield distributed, APY, status
+**Returns**: Protocol TVL, yield distributed, APY, status, timestamps ✨ Enhanced
 
 ##### `get-participant-stake-info`
 
@@ -221,6 +288,38 @@ tests/
 ```
 
 **Returns**: Individual staking balance
+
+##### `get-participant-detailed-info` ✨ New in Clarity 4
+
+```clarity
+(define-read-only (get-participant-detailed-info (participant principal)))
+```
+
+**Returns**: Complete user info (balance, rewards, risk score, insurance)
+
+##### `estimate-pending-yield` ✨ New in Clarity 4
+
+```clarity
+(define-read-only (estimate-pending-yield (participant principal)))
+```
+
+**Returns**: Calculated pending yield based on elapsed time
+
+##### `can-distribute-yield` ✨ New in Clarity 4
+
+```clarity
+(define-read-only (can-distribute-yield))
+```
+
+**Returns**: Boolean indicating if 24 hours have passed
+
+##### `get-time-since-last-distribution` ✨ New in Clarity 4
+
+```clarity
+(define-read-only (get-time-since-last-distribution))
+```
+
+**Returns**: Seconds elapsed since last distribution
 
 ##### `get-participant-risk-assessment`
 
@@ -240,6 +339,7 @@ The contract implements full SIP-010 compliance:
 - `get-balance` - Account balance lookup
 - `get-total-supply` - Total protocol TVL
 - `transfer` - Token transfer with memo support
+- `secure-transfer` ✨ - Clarity 4 protected transfer with `restrict-assets?`
 
 ## 🛡️ Security Features
 
@@ -257,9 +357,16 @@ The contract implements full SIP-010 compliance:
 
 ### Operational Security
 
-- **Time-locked distributions** prevent gaming
+- **Time-locked distributions** prevent gaming (86,400 seconds exact)
 - **Balance validation** on all transfers
 - **State consistency** checks throughout
+
+### Clarity 4 Enhanced Security ✨
+
+- **Asset restriction protection** - `restrict-assets?` prevents unauthorized movements
+- **Precise time validation** - `stacks-block-time` eliminates block approximation exploits
+- **Comprehensive audit trail** - Every action emits timestamped events
+- **Automatic rollback** - Failed asset checks trigger immediate reversion
 
 ## 🎯 Use Cases
 
@@ -297,10 +404,12 @@ Key parameters can be adjusted by the contract owner:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| Base Yield Rate | 7.5% | Annual percentage yield |
-| Distribution Frequency | 144 blocks | Yield distribution cycle |
+| Base Yield Rate | 7.5% | Annual percentage yield (adjustable 1-50%) |
+| Distribution Frequency | 86,400 seconds | Exact 24-hour cycle ✨ |
 | Minimum Stake | 0.01 BTC | Entry threshold |
 | Insurance Coverage | Optional | Risk protection toggle |
+| Max Yield Rate | 50% | Security cap on APY |
+| Min Yield Rate | 1% | Minimum viable APY |
 
 ## 📊 Performance Metrics
 
