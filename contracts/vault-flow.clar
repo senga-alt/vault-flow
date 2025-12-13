@@ -416,11 +416,44 @@
     protocol-status: (var-get protocol-active),
     insurance-module-status: (var-get insurance-module-active),
     insurance-reserve-tvl: (var-get insurance-reserve-balance),
+    last-distribution-time: (var-get last-yield-distribution-time),
+    current-time: stacks-block-time,
   })
 )
 
 (define-read-only (get-participant-risk-assessment (participant principal))
   (ok (default-to u0 (map-get? participant-risk-profiles participant)))
+)
+
+;; NEW CLARITY 4 ENHANCED FUNCTIONS
+(define-read-only (get-participant-detailed-info (participant principal))
+  (ok {
+    balance: (default-to u0 (map-get? participant-balances participant)),
+    rewards: (default-to u0 (map-get? participant-accumulated-rewards participant)),
+    risk-score: (default-to u0 (map-get? participant-risk-profiles participant)),
+    insurance-coverage: (default-to u0 (map-get? insurance-protection-coverage participant)),
+  })
+)
+
+(define-read-only (get-time-since-last-distribution)
+  (ok (- stacks-block-time (var-get last-yield-distribution-time)))
+)
+
+(define-read-only (can-distribute-yield)
+  (let (
+      (time-since-last (- stacks-block-time (var-get last-yield-distribution-time)))
+    )
+    (ok (>= time-since-last SECONDS_PER_DAY))
+  )
+)
+
+(define-read-only (estimate-pending-yield (participant principal))
+  (let (
+      (stake-balance (default-to u0 (map-get? participant-balances participant)))
+      (time-elapsed (- stacks-block-time (var-get last-yield-distribution-time)))
+    )
+    (ok (compute-yield-amount stake-balance time-elapsed))
+  )
 )
 
 ;; PROTOCOL INITIALIZATION
